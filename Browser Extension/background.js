@@ -33,6 +33,48 @@ function getMediaPlayerDisplayName(player) {
   }
 }
 
+// Reusable function to launch the media player
+function launchMediaPlayer(mediaURL) {
+  browser.storage.local.get(['defaultMediaPlayer', 'serverPort'], (result) => {
+    const defaultMediaPlayer = result.defaultMediaPlayer || "vlc";
+    const playerDisplayName = getMediaPlayerDisplayName(defaultMediaPlayer);
+    const port = result.serverPort || 26270;
+    const launchUrl = `http://localhost:${port}/launch?player=${defaultMediaPlayer}&media_url=${encodeURIComponent(mediaURL)}`;
+    
+    console.log(playerDisplayName + " launched with URL: " + launchUrl);
+
+    fetch(launchUrl, {cache: "no-store"})
+      .then(response => {
+        if (!response.ok) {
+          throw new Error(`Server error: ${response.status}`);
+        }
+        return response.text();
+      })
+      .then(text => {
+        console.log("Launch attempt successful: Enjoy your media!");
+        /*
+        browser.notifications.create({
+          type: 'basic',
+          iconUrl: 'images/icon.png',
+          title: 'Enjoy your media!',
+          message: 'Media player launched successfully.'
+        });
+        */
+      })
+      .catch(error => {
+        let errorMessage = error.message === "Failed to fetch" || "NetworkError when attempting to fetch resource." ? "Windows helper app is not connected. Please open settings page of this extension to check/configure helper app connection." : error.message;
+
+        console.log("Launch attempt failed: " + error);
+        browser.notifications.create({
+          type: 'basic',
+          iconUrl: 'images/icon.png',
+          title: 'Media player launch failed!',
+          message: errorMessage
+        });
+      });
+  });
+}
+
 // Create the context menu when the extension is installed or updated.
 browser.runtime.onInstalled.addListener(() => {
   browser.storage.local.get(['defaultMediaPlayer'], (result) => {
@@ -43,6 +85,9 @@ browser.runtime.onInstalled.addListener(() => {
       title: "Open in " + playerDisplayName,
       contexts: ["link", "audio", "video"],
       targetUrlPatterns: [
+	    "*://*/*/stream?*",
+        "*://*/*/stream/*",
+	  
         // supported video formats
         "*://*/*.avi",
         "*://*/*.mid",
@@ -63,6 +108,7 @@ browser.runtime.onInstalled.addListener(() => {
         "*://*/*.ogv",
         "*://*/*.3gp",
         "*://*/*.mkv",
+		"*://*/*.mkv",
 
         // supported audio formats
         "*://*/*.aac",
@@ -88,45 +134,14 @@ browser.storage.onChanged.addListener((changes, area) => {
 // Handle clicks on the context menu.
 browser.contextMenus.onClicked.addListener((info, tab) => {
   if (info.menuItemId === "viewInLocalMediaPlayer") {
-    const mediaURL = info.srcUrl || info.linkUrl;;
-    
-    browser.storage.local.get(['defaultMediaPlayer', 'serverPort'], (result) => {
-      const defaultMediaPlayer = result.defaultMediaPlayer || "vlc";
-	  const playerDisplayName = getMediaPlayerDisplayName(defaultMediaPlayer);
-      const port = result.serverPort || 26270;
-      const launchUrl = `http://localhost:${port}/launch?player=${defaultMediaPlayer}&media_url=${encodeURIComponent(mediaURL)}`;
-      
-      console.log(playerDisplayName + " launched with URL: " + launchUrl);
+    const mediaURL = info.srcUrl || info.linkUrl;
+    launchMediaPlayer(mediaURL); // Use the refactored function
+  }
+});
 
-      fetch(launchUrl, {cache: "no-store"})
-        .then(response => {
-          if (!response.ok) {
-            throw new Error(`Server error: ${response.status}`);
-          }
-          return response.text();
-        })
-        .then(text => {
-          console.log("Launch attempt successful: Enjoy your media!");
-          /*
-          browser.notifications.create({
-            type: 'basic',
-            iconUrl: 'images/icon.png',
-            title: 'Enjoy your media!',
-            message: 'Media player launched successfully.'
-          });
-          */
-        })
-        .catch(error => {
-          let errorMessage = error.message === "Failed to fetch" || "NetworkError when attempting to fetch resource." ? "Windows helper app is not connected. Please open settings page of this extension to check/configure helper app connection." : error.message;
-
-          console.log("Launch attempt failed: " + error);
-          browser.notifications.create({
-            type: 'basic',
-            iconUrl: 'images/icon.png',
-            title: 'Media player launch failed!',
-            message: errorMessage
-          });
-        });
-    });
+// Handle messages from the content script (for left-clicks).
+browser.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  if (message.action === "openInMediaPlayer") {
+    launchMediaPlayer(message.mediaURL); // Use the refactored function
   }
 });
